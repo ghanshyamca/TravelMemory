@@ -1,0 +1,36 @@
+name: Travelmemory backend with Docker and Node
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+ 
+jobs:
+
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    #  Setup Node.js (required by your Dockerfile)
+    - name: Set up Node.js
+      uses: actions/setup-node@v4]
+      with:
+        node-version: "18"
+
+    # (Optional) Verify Node installation
+    - name: Check Node version
+      run: |
+        node -v
+        npm -v
+
+    #  Setup Docker
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    #  Build Docker Image
+    - name: Build Docker image
+      run: |
+        docker build -t flask-node-demo .
