@@ -76,7 +76,7 @@ ansible-playbook -i inventory.ini site.yml
 ## 7. Validate Application
 
 1. Open: `http://54.177.219.251/`
-2. Check API health: `http://54.177.219.251//api/hello`
+2. Check API health: `http://54.177.219.251/api/hello`
 
 <img width="1920" height="1180" alt="image" src="https://github.com/user-attachments/assets/0edf327f-1754-41d1-907b-6e842ac93c0d" />
 
