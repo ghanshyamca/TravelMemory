@@ -119,6 +119,22 @@ dist
 # TernJS port file
 .tern-port
 
+# Terraform files
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+
+# SSH private keys
+*.pem
+ansible/*.pem
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 
@@ -128,3 +144,4 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+terraform/.terraform/*

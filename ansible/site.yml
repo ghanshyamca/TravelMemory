@@ -1,0 +1,200 @@
+- name: Configure MongoDB database host
+  hosts: db
+  become: true
+  vars_files:
+    - group_vars/all.yml
+  tasks:
+    - name: Install prerequisites for MongoDB repository
+      ansible.builtin.apt:
+        name:
+          - gnupg
+          - curl
+          - ca-certificates
+        state: present
+        update_cache: true
+
+    - name: Add MongoDB signing key
+      ansible.builtin.apt_key:
+        url: https://www.mongodb.org/static/pgp/server-7.0.asc
+        state: present
+
+    - name: Add MongoDB APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse"
+        state: present
+        filename: mongodb-org-7.0
+
+    - name: Install MongoDB packages
+      ansible.builtin.apt:
+        name: mongodb-org
+        state: present
+        update_cache: true
+
+    - name: Start and enable MongoDB
+      ansible.builtin.service:
+        name: mongod
+        state: started
+        enabled: true
+
+    - name: Initialize MongoDB users
+      ansible.builtin.shell: |
+        mongosh --quiet --eval '
+        db.getSiblingDB("admin").createUser({user: "{{ mongo_admin_user }}", pwd: "{{ mongo_admin_password }}", roles: [{role: "root", db: "admin"}]});
+        db.getSiblingDB("{{ mongo_db_name }}").createUser({user: "{{ mongo_app_user }}", pwd: "{{ mongo_app_password }}", roles: [{role: "readWrite", db: "{{ mongo_db_name }}"}]});
+        '
+      args:
+        creates: /etc/mongodb-users-created
+      register: mongo_init
+      changed_when: mongo_init.rc == 0
+      no_log: true
+
+    - name: Mark MongoDB users as created
+      ansible.builtin.file:
+        path: /etc/mongodb-users-created
+        state: touch
+        mode: '0600'
+      when: mongo_init is succeeded
+
+    - name: Deploy MongoDB configuration
+      ansible.builtin.template:
+        src: templates/mongod.conf.j2
+        dest: /etc/mongod.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart MongoDB
+
+  handlers:
+    - name: Restart MongoDB
+      ansible.builtin.service:
+        name: mongod
+        state: restarted
+
+- name: Configure web host for Node.js and the MERN app
+  hosts: web
+  become: true
+  vars_files:
+    - group_vars/all.yml
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - git
+          - nginx
+          - ufw
+          - ca-certificates
+        state: present
+        update_cache: true
+
+    - name: Add NodeSource repository key
+      ansible.builtin.shell: |
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+
+    - name: Install Node.js
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+        update_cache: true
+
+    - name: Install PM2 globally
+      ansible.builtin.npm:
+        name: pm2
+        global: true
+        state: present
+
+    - name: Enable UFW and allow SSH, HTTP, HTTPS
+      ansible.builtin.command: ufw allow {{ item }}
+      loop:
+        - '22'
+        - '80'
+        - '443'
+
+    - name: Enable UFW
+      ansible.builtin.command: ufw --force enable
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_root }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Clone the MERN repository
+      ansible.builtin.git:
+        repo: "{{ app_repo_url }}"
+        dest: "{{ app_root }}"
+        force: true
+      become_user: ubuntu
+
+    - name: Install backend dependencies
+      ansible.builtin.command: npm install
+      args:
+        chdir: "{{ backend_root }}"
+      become_user: ubuntu
+
+    - name: Write backend environment file
+      ansible.builtin.template:
+        src: templates/backend.env.j2
+        dest: "{{ backend_root }}/.env"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+
+    - name: Start backend with PM2
+      ansible.builtin.shell: |
+        pm2 delete travelmemory-backend || true
+        pm2 start index.js --name travelmemory-backend --cwd {{ backend_root }}
+        pm2 save
+      args:
+        executable: /bin/bash
+      become_user: ubuntu
+
+    - name: Install frontend dependencies
+      ansible.builtin.command: npm install
+      args:
+        chdir: "{{ frontend_root }}"
+      become_user: ubuntu
+
+    - name: Build the React frontend with the backend URL
+      ansible.builtin.command: npm run build
+      args:
+        chdir: "{{ frontend_root }}"
+      environment:
+        REACT_APP_BACKEND_URL: "/api"
+      become_user: ubuntu
+
+    - name: Deploy nginx site configuration
+      ansible.builtin.template:
+        src: templates/nginx-web.conf.j2
+        dest: /etc/nginx/sites-available/travelmemory
+        mode: '0644'
+      notify: Reload Nginx
+
+    - name: Enable nginx site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/travelmemory
+        dest: /etc/nginx/sites-enabled/travelmemory
+        state: link
+      notify: Reload Nginx
+
+    - name: Remove default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload Nginx
+
+    - name: Ensure nginx is enabled and running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Reload Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
