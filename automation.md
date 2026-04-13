@@ -83,7 +83,7 @@ ansible-playbook -i inventory.ini site.yml
 
 ## Optional Cleanup
 
-To remove infrastructure after demo/submission:
+To remove infrastructure
 
 ```powershell
 terraform destroy
